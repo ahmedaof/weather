@@ -14,6 +14,7 @@ export class WeatherService {
 	async getCurrentWeather(city: string) {
 		const cacheKey = `weather_current_${city.toLowerCase()}`
 		const cached = await this.cacheManager.get(cacheKey)
+		console.log(cached)
 		if (cached) return cached
 
 		try {
@@ -64,25 +65,64 @@ export class WeatherService {
 	}
 
 	private groupByDate(data: any[]) {
-		const daily = {}
+		const daily = {};
 
 		data.forEach((item) => {
-			const date = item.dt_txt.split(' ')[0]
-			if (!daily[date]) daily[date] = []
+			const date = item.dt_txt.split(' ')[0];
+			if (!daily[date]) {
+				daily[date] = { temps: [], descriptions: [] };
+			}
 
-			daily[date].push(item.main.temp)
-		})
+			daily[date].temps.push(item.main.temp);
+			daily[date].descriptions.push(item.weather[0].description);
+		});
 
 		return Object.keys(daily).map((date) => {
-			const temps = daily[date]
-			const avgTemp = temps.reduce((sum, temp) => sum + temp, 0) / temps.length
-			return { date, avgTemperature: avgTemp.toFixed(1) }
-		})
+			const { temps, descriptions } = daily[date];
+			const avgTemp = temps.reduce((sum, temp) => sum + temp, 0) / temps.length;
+			const description = this.getDescription(descriptions);
+
+			return {
+				date,
+				avgTemperature: avgTemp.toFixed(1),
+				description,
+			};
+		});
 	}
+
+	private getDescription(descriptions: string[]): string {
+		const data = {};
+		let mostDesc = descriptions[0];
+		let maxCount = 1;
+
+		for (const desc of descriptions) {
+			data[desc] = (data[desc] || 0) + 1;
+			if (data[desc] > maxCount) {
+				mostDesc = desc;
+				maxCount = data[desc];
+			}
+		}
+
+		return mostDesc;
+	}
+
 
 	// always make a file to handle all errors with its translation if it required.
 	private handleError(error: any) {
-		const message = error.response?.data?.message || 'Failed to fetch weather data'
-		throw new HttpException(message, error.response?.status || 500)
+		if (error.response) {
+			const status = error.response.status;
+			const message = error.response.data?.message || 'Weather API error';
+
+			if (status === 429) {
+				throw new HttpException(`Rate limit exceeded. Try again later.`, 429);
+			}
+
+			throw new HttpException(message, status); // other API errors
+		} else if (error.request) {
+			throw new HttpException('Weather API unreachable', 503); //  Connection failure
+		} else {
+			throw new HttpException('Unexpected server error', 500);
+		}
 	}
+
 }
